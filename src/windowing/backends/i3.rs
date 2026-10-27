@@ -75,12 +75,17 @@ pub(crate) fn parse_i3_tree(json: &str) -> Result<Vec<WindowInfo>> {
         serde_json::from_str(json).context("failed to parse i3-msg get_tree output")?;
     let mut windows = Vec::new();
     collect_i3_windows(&root, None, false, &mut windows);
-    windows.sort_by_key(|window| window.window_id);
+    windows.sort_by_key(|window| window.window_id.clone());
     Ok(windows)
 }
 
-pub async fn activate_window(window_id: u64) -> Result<()> {
-    let selector = format!(r#"[id="0x{window_id:x}"] focus"#);
+pub async fn activate_window(window_id: &str) -> Result<()> {
+    let selector = format!(
+        r#"[id="0x{:x}"] focus"#,
+        window_id.parse::<u64>().with_context(|| format!(
+            "i3 window_id {window_id:?} is not a valid unsigned integer"
+        ))?
+    );
     let mut command = i3_msg_command_async();
     command.arg(&selector);
     let output = command_runner::output(command, &format!("run i3-msg {selector}")).await?;
@@ -141,14 +146,14 @@ fn collect_i3_windows(
 async fn hydrate_i3_window_pids(windows: &mut [WindowInfo]) {
     for window in windows {
         if window.pid.is_none() {
-            window.pid = i3_window_pid(window.window_id).await;
+            window.pid = i3_window_pid(&window.window_id).await;
         }
     }
 }
 
-async fn i3_window_pid(window_id: u64) -> Option<u32> {
+async fn i3_window_pid(window_id: &str) -> Option<u32> {
     let mut command = TokioCommand::new("xprop");
-    command.args(["-id", &window_id.to_string(), "_NET_WM_PID"]);
+    command.args(["-id", window_id, "_NET_WM_PID"]);
     let output = command_runner::output(command, "query X11 window pid")
         .await
         .ok()?;
@@ -234,7 +239,8 @@ struct I3Node {
     #[serde(rename = "type")]
     node_type: Option<String>,
     name: Option<String>,
-    window: Option<u64>,
+    #[serde(deserialize_with = "deserialize_optional_window_id")]
+    window: Option<String>,
     window_type: Option<String>,
     window_properties: Option<I3WindowProperties>,
     rect: Option<I3Rect>,
@@ -256,6 +262,14 @@ struct I3WindowProperties {
     title: Option<String>,
 }
 
+fn deserialize_optional_window_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<serde_json::Number>::deserialize(deserializer)
+        .map(|window_id| window_id.map(|id| id.to_string()))
+}
+
 #[derive(Debug, Deserialize)]
 struct I3Rect {
     x: i32,
@@ -269,7 +283,7 @@ impl I3Node {
         if in_dockarea {
             return None;
         }
-        let window_id = self.window?;
+        let window_id = self.window.as_deref()?;
         if self.window_type.as_deref() == Some("dock") {
             return None;
         }
@@ -299,7 +313,7 @@ impl I3Node {
         });
 
         Some(WindowInfo {
-            window_id,
+            window_id: window_id.to_string(),
             title,
             app_id,
             wm_class,

@@ -113,7 +113,10 @@ async fn list_windows_with_focus_query(require_focus_query: bool) -> Result<Vec<
 
     let active_id =
         resolve_active_window_query(active_window_query_async().await, require_focus_query)?;
-    let mut windows = parse_wmctrl_windows(&String::from_utf8_lossy(&output.stdout), active_id);
+    let mut windows = parse_wmctrl_windows(
+        &String::from_utf8_lossy(&output.stdout),
+        active_id.as_deref(),
+    );
     correct_client_origins(&mut windows).await;
     enrich_terminal_windows(&mut windows);
     Ok(windows)
@@ -124,7 +127,10 @@ async fn list_windows_with_focus_query(require_focus_query: bool) -> Result<Vec<
 /// a wrong origin would shift crops and relative clicks, while an unknown one
 /// makes them refuse.
 async fn correct_client_origins(windows: &mut [WindowInfo]) {
-    let ids = windows.iter().map(x11_window_id).collect::<Vec<_>>();
+    let ids = windows
+        .iter()
+        .map(|window| x11_display_window_id(&window.window_id).unwrap_or(0))
+        .collect::<Vec<_>>();
     let origins = with_x11_display(X11_QUERY_TIMEOUT, move |display| {
         display.client_origins(&ids)
     })
@@ -133,10 +139,18 @@ async fn correct_client_origins(windows: &mut [WindowInfo]) {
     apply_client_origins(windows, &origins);
 }
 
-fn x11_window_id(window: &WindowInfo) -> u32 {
+fn x11_display_window_id(window_id: &str) -> Option<u32> {
     // X resource ids are 29-bit; anything larger is not a window and the
     // server answers with an error, which becomes an unknown origin.
-    u32::try_from(window.window_id).unwrap_or(0)
+    let hex = x11_window_id_hex(window_id)?;
+    u32::from_str_radix(hex, 16).ok()
+}
+
+fn x11_window_id_hex(window_id: &str) -> Option<&str> {
+    let hex = window_id
+        .strip_prefix("0x")
+        .or_else(|| window_id.strip_prefix("0X"))?;
+    (!hex.is_empty() && hex.bytes().all(|byte| byte.is_ascii_hexdigit())).then_some(hex)
 }
 
 pub(crate) fn apply_client_origins(windows: &mut [WindowInfo], origins: &[Option<(i32, i32)>]) {
@@ -148,20 +162,18 @@ pub(crate) fn apply_client_origins(windows: &mut [WindowInfo], origins: &[Option
     }
 }
 
-pub async fn activate_window(window_id: u64) -> Result<()> {
-    let id = window_id_arg(window_id);
-    run_wmctrl(&["-i", "-a", id.as_str()], "activate window", window_id).await
+pub async fn activate_window(window_id: &str) -> Result<()> {
+    run_wmctrl(&["-i", "-a", window_id], "activate window", window_id).await
 }
 
-pub async fn move_window(window_id: u64, x: i32, y: i32) -> Result<String> {
+pub async fn move_window(window_id: &str, x: i32, y: i32) -> Result<String> {
     unmaximize(window_id).await?;
-    let id = window_id_arg(window_id);
     // wmctrl -e is `gravity,x,y,width,height`; the trailing -1,-1 keep the size.
     // wmctrl also reads -1 in the x/y fields as "preserve current position", so a
     // literal -1 target would be dropped — nudge it to -2 so the move still lands.
     let geometry = format!("0,{},{},-1,-1", wmctrl_move_coord(x), wmctrl_move_coord(y));
     run_wmctrl(
-        &["-i", "-r", id.as_str(), "-e", geometry.as_str()],
+        &["-i", "-r", window_id, "-e", geometry.as_str()],
         "move window",
         window_id,
     )
@@ -195,7 +207,7 @@ fn wmctrl_move_coord(value: i32) -> i32 {
     }
 }
 
-pub async fn resize_window(window_id: u64, width: i32, height: i32) -> Result<String> {
+pub async fn resize_window(window_id: &str, width: i32, height: i32) -> Result<String> {
     // wmctrl -e reads -1 (and rejects <= 0) as "preserve current value" per
     // field, so a non-positive size would silently leave a dimension unchanged
     // while reporting success. Reject it up front.
@@ -203,10 +215,9 @@ pub async fn resize_window(window_id: u64, width: i32, height: i32) -> Result<St
         bail!("resize requires positive width and height (got {width}x{height})");
     }
     unmaximize(window_id).await?;
-    let id = window_id_arg(window_id);
     let geometry = format!("0,-1,-1,{width},{height}");
     run_wmctrl(
-        &["-i", "-r", id.as_str(), "-e", geometry.as_str()],
+        &["-i", "-r", window_id, "-e", geometry.as_str()],
         "resize window",
         window_id,
     )
@@ -236,7 +247,7 @@ struct X11Geometry {
 }
 
 async fn wait_for_window_geometry(
-    window_id: u64,
+    window_id: &str,
     matches: impl Fn(&X11Geometry) -> bool,
 ) -> Result<(X11Geometry, bool)> {
     let mut last_bounds = None;
@@ -254,12 +265,12 @@ async fn wait_for_window_geometry(
     match last_bounds {
         Some(bounds) => Ok((bounds, false)),
         None => {
-            bail!("X11/EWMH window 0x{window_id:x} could not be queried after the geometry request")
+            bail!("X11/EWMH window {window_id} could not be queried after the geometry request")
         }
     }
 }
 
-async fn query_window_geometry(window_id: u64) -> Option<X11Geometry> {
+async fn query_window_geometry(window_id: &str) -> Option<X11Geometry> {
     let mut command = wmctrl_async();
     command.args(["-l", "-p", "-G", "-x"]);
     let output = command_runner::output(command, "query X11 window geometry")
@@ -271,7 +282,7 @@ async fn query_window_geometry(window_id: u64) -> Option<X11Geometry> {
     let window = parse_wmctrl_windows(&String::from_utf8_lossy(&output.stdout), None)
         .into_iter()
         .find(|window| window.window_id == window_id)?;
-    let id = x11_window_id(&window);
+    let id = x11_display_window_id(&window.window_id)?;
     let mut bounds = window.bounds?;
     let (client_origin, extents) = with_x11_display(X11_QUERY_TIMEOUT, move |display| {
         let origin = display.client_origins(&[id]).into_iter().next().flatten();
@@ -300,13 +311,12 @@ fn bounds_at_size(bounds: &WindowBounds, width: u32, height: u32) -> bool {
 
 /// EWMH move/resize only take effect on unmaximized windows, so drop the
 /// maximized state first (mirrors the GNOME extension backend behaviour).
-async fn unmaximize(window_id: u64) -> Result<()> {
-    let id = window_id_arg(window_id);
+async fn unmaximize(window_id: &str) -> Result<()> {
     run_wmctrl(
         &[
             "-i",
             "-r",
-            id.as_str(),
+            window_id,
             "-b",
             "remove,maximized_vert,maximized_horz",
         ],
@@ -316,22 +326,21 @@ async fn unmaximize(window_id: u64) -> Result<()> {
     .await
 }
 
-async fn run_wmctrl(args: &[&str], action: &str, window_id: u64) -> Result<()> {
+async fn run_wmctrl(args: &[&str], action: &str, window_id: &str) -> Result<()> {
     let mut command = wmctrl_async();
     command.args(args);
-    let output =
-        command_runner::output(command, &format!("run wmctrl to {action} 0x{window_id:x}")).await?;
+    let output = command_runner::output(
+        command,
+        &format!("run wmctrl to {action} window_id {window_id}"),
+    )
+    .await?;
     if !output.status.success() {
         bail!(
-            "wmctrl failed to {action} 0x{window_id:x}: {}",
+            "wmctrl failed to {action} window_id {window_id}: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
     Ok(())
-}
-
-fn window_id_arg(window_id: u64) -> String {
-    format!("0x{window_id:08x}")
 }
 
 fn wmctrl() -> Command {
@@ -342,7 +351,7 @@ fn wmctrl_async() -> TokioCommand {
     TokioCommand::new("wmctrl")
 }
 
-async fn active_window_query_async() -> Option<Option<u64>> {
+async fn active_window_query_async() -> Option<Option<String>> {
     let mut command = TokioCommand::new("xprop");
     command.args(["-root", "-notype", "_NET_ACTIVE_WINDOW"]);
     let output = command_runner::output(command, "query the active X11 window")
@@ -355,16 +364,16 @@ async fn active_window_query_async() -> Option<Option<u64>> {
 }
 
 fn resolve_active_window_query(
-    query: Option<Option<u64>>,
+    query: Option<Option<String>>,
     require_focus_query: bool,
-) -> Result<Option<u64>> {
+) -> Result<Option<String>> {
     if require_focus_query && query.is_none() {
         bail!("xprop could not query _NET_ACTIVE_WINDOW");
     }
     Ok(query.flatten())
 }
 
-fn active_window_query() -> Option<Option<u64>> {
+fn active_window_query() -> Option<Option<String>> {
     let mut command = Command::new("xprop");
     command.args(["-root", "-notype", "_NET_ACTIVE_WINDOW"]);
     let output = command_runner::output_blocking_with_timeout(
@@ -379,30 +388,36 @@ fn active_window_query() -> Option<Option<u64>> {
     parse_active_window_query(&String::from_utf8_lossy(&output.stdout))
 }
 
-fn parse_active_window_query(xprop_output: &str) -> Option<Option<u64>> {
+fn parse_active_window_query(xprop_output: &str) -> Option<Option<String>> {
     let after = xprop_output.split("0x").nth(1)?;
     let hex: String = after
         .chars()
         .take_while(|character| character.is_ascii_hexdigit())
         .collect();
-    let id = u64::from_str_radix(&hex, 16).ok()?;
-    Some((id != 0).then_some(id))
+    if hex.is_empty() {
+        return None;
+    }
+    Some(
+        hex.bytes()
+            .any(|byte| byte != b'0')
+            .then(|| format!("0x{hex}")),
+    )
 }
 
 /// Parse `wmctrl -l -p -G -x` output into window records.
 ///
 /// Each line is: `id desktop pid x y w h wm_class client_machine title...`,
 /// where `title` is the free-form remainder (may contain spaces).
-pub(crate) fn parse_wmctrl_windows(list_output: &str, active_id: Option<u64>) -> Vec<WindowInfo> {
+pub(crate) fn parse_wmctrl_windows(list_output: &str, active_id: Option<&str>) -> Vec<WindowInfo> {
     let mut windows: Vec<WindowInfo> = list_output
         .lines()
         .filter_map(|line| parse_wmctrl_line(line, active_id))
         .collect();
-    windows.sort_by_key(|window| window.window_id);
+    windows.sort_by_key(|window| window.window_id.clone());
     windows
 }
 
-fn parse_wmctrl_line(line: &str, active_id: Option<u64>) -> Option<WindowInfo> {
+fn parse_wmctrl_line(line: &str, active_id: Option<&str>) -> Option<WindowInfo> {
     let mut rest = line;
     let id_field = next_field(&mut rest)?;
     let desktop_field = next_field(&mut rest)?;
@@ -415,7 +430,7 @@ fn parse_wmctrl_line(line: &str, active_id: Option<u64>) -> Option<WindowInfo> {
     let _client_machine = next_field(&mut rest);
     let title = rest.trim();
 
-    let window_id = u64::from_str_radix(id_field.trim_start_matches("0x"), 16).ok()?;
+    x11_window_id_hex(id_field)?;
     let desktop = desktop_field.parse::<i32>().ok()?;
     let pid = pid_field.parse::<u32>().ok().filter(|pid| *pid != 0);
     let x = x_field.parse::<i32>().ok()?;
@@ -426,7 +441,7 @@ fn parse_wmctrl_line(line: &str, active_id: Option<u64>) -> Option<WindowInfo> {
     let (app_id, wm_class) = split_wm_class(class_field);
 
     Some(WindowInfo {
-        window_id,
+        window_id: id_field.to_string(),
         title: clean(title),
         app_id,
         wm_class,
@@ -438,12 +453,23 @@ fn parse_wmctrl_line(line: &str, active_id: Option<u64>) -> Option<WindowInfo> {
             height,
         }),
         workspace: (desktop >= 0).then_some(desktop),
-        focused: active_id == Some(window_id),
+        focused: active_id.is_some_and(|active_id| x11_window_ids_equal(active_id, id_field)),
         hidden: false,
         client_type: Some("x11".to_string()),
         backend: X11_BACKEND.to_string(),
         terminal: None,
     })
+}
+
+fn x11_window_ids_equal(left: &str, right: &str) -> bool {
+    let Some(left) = x11_window_id_hex(left) else {
+        return false;
+    };
+    let Some(right) = x11_window_id_hex(right) else {
+        return false;
+    };
+    left.trim_start_matches('0')
+        .eq_ignore_ascii_case(right.trim_start_matches('0'))
 }
 
 /// `wmctrl -x` prints `WM_CLASS` as `instance.Class`. Map `instance` to
@@ -493,11 +519,11 @@ mod tests {
     fn parses_active_window_id_from_xprop() {
         assert_eq!(
             parse_active_window_query("_NET_ACTIVE_WINDOW: window id # 0x7000004\n"),
-            Some(Some(0x7000004))
+            Some(Some("0x7000004".to_string()))
         );
         assert_eq!(
             parse_active_window_query("_NET_ACTIVE_WINDOW(WINDOW): window id # 0x03a00017\n"),
-            Some(Some(0x03a00017))
+            Some(Some("0x03a00017".to_string()))
         );
         assert_eq!(
             parse_active_window_query("_NET_ACTIVE_WINDOW: window id # 0x0\n"),
@@ -514,8 +540,8 @@ mod tests {
         assert!(resolve_active_window_query(None, true).is_err());
         assert_eq!(resolve_active_window_query(Some(None), true).unwrap(), None);
         assert_eq!(
-            resolve_active_window_query(Some(Some(0x7000004)), true).unwrap(),
-            Some(0x7000004)
+            resolve_active_window_query(Some(Some("0x7000004".to_string())), true).unwrap(),
+            Some("0x7000004".to_string())
         );
         assert_eq!(resolve_active_window_query(None, false).unwrap(), None);
     }
@@ -529,13 +555,13 @@ mod tests {
 0x05c00007  0 26606  0    72   2560 1368 terminator.Terminator  rog jo@rog: ~
 0x07000004 -1 0      10   10   400  300  claude-desktop.claude-desktop  rog Claude
 ";
-        let windows = parse_wmctrl_windows(output, Some(0x07000004));
+        let windows = parse_wmctrl_windows(output, Some("0x7000004"));
 
         assert_eq!(windows.len(), 4);
 
         let firefox = windows
             .iter()
-            .find(|window| window.window_id == 0x03a00017)
+            .find(|window| window.window_id == "0x03a00017")
             .unwrap();
         assert_eq!(firefox.app_id.as_deref(), Some("Navigator"));
         assert_eq!(firefox.wm_class.as_deref(), Some("firefox"));
@@ -557,7 +583,7 @@ mod tests {
         // Active window is flagged; sticky desktop (-1) has no workspace; pid 0 -> None.
         let claude = windows
             .iter()
-            .find(|window| window.window_id == 0x07000004)
+            .find(|window| window.window_id == "0x07000004")
             .unwrap();
         assert!(claude.focused);
         assert_eq!(claude.workspace, None);

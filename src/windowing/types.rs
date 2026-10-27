@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct WindowInfo {
-    pub window_id: u64,
+    pub window_id: String,
     pub title: Option<String>,
     pub app_id: Option<String>,
     pub wm_class: Option<String>,
@@ -36,7 +36,7 @@ pub(crate) fn app_id_leaf(app_id: &str) -> &str {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 pub struct WindowTarget {
     #[serde(default)]
-    pub window_id: Option<u64>,
+    pub window_id: Option<String>,
     #[serde(default)]
     pub pid: Option<u32>,
     #[serde(default)]

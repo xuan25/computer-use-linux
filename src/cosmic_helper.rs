@@ -77,8 +77,8 @@ pub async fn monitor_layout() -> Result<Vec<CosmicMonitor>> {
     run_json_command_async(["monitor-layout"]).await
 }
 
-pub async fn activate_window(window_id: u64) -> Result<CosmicHelperActivation> {
-    run_json_command_async(["activate-window", "--window-id", &window_id.to_string()]).await
+pub async fn activate_window(window_id: &str) -> Result<CosmicHelperActivation> {
+    run_json_command_async(["activate-window", "--window-id", window_id]).await
 }
 
 fn run_json_command<T, I, S>(args: I) -> Result<T>

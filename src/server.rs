@@ -84,7 +84,7 @@ const UNMATCHABLE_ACCESSIBILITY_APP_FILTER: &str = "\0";
 struct CachedAccessibilitySnapshot {
     nodes: Vec<AccessibilityNode>,
     pid: Option<u32>,
-    window_id: Option<u64>,
+    window_id: Option<String>,
     window_backend: Option<String>,
     recovery_scope: Option<AccessibilityRecoveryScope>,
 }
@@ -2840,7 +2840,7 @@ struct PostActionObservation {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 struct ActivateWindowParams {
     #[serde(default)]
-    window_id: Option<u64>,
+    window_id: Option<String>,
     #[serde(default)]
     pid: Option<u32>,
     #[serde(default)]
@@ -2990,7 +2990,7 @@ struct GetAppStateParams {
     /// Compositor window id. Also scopes the accessibility tree to that window's
     /// application when possible.
     #[serde(default)]
-    window_id: Option<u64>,
+    window_id: Option<String>,
     /// Process id. Also scopes the accessibility tree to that process when it
     /// exposes AT-SPI.
     #[serde(default)]
@@ -3061,7 +3061,7 @@ struct GetAppStateParams {
 impl GetAppStateParams {
     fn window_target(&self) -> WindowTarget {
         WindowTarget {
-            window_id: self.window_id,
+            window_id: self.window_id.clone(),
             pid: self.pid,
             tty: self.tty.clone(),
             terminal_pid: self.terminal_pid,
@@ -3088,7 +3088,7 @@ impl GetAppStateParams {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 struct ScreenshotParams {
     #[serde(default)]
-    window_id: Option<u64>,
+    window_id: Option<String>,
     #[serde(default)]
     pid: Option<u32>,
     #[serde(default)]
@@ -3136,7 +3136,7 @@ impl ScreenshotParams {
             return None;
         }
         Some(WindowTarget {
-            window_id: self.window_id,
+            window_id: self.window_id.clone(),
             pid: self.pid,
             tty: None,
             terminal_pid: None,
@@ -3376,7 +3376,7 @@ struct ClickParams {
     // click so a coordinate click reliably lands on the intended app rather than
     // whatever window happens to be stacked on top at that pixel.
     #[serde(default)]
-    window_id: Option<u64>,
+    window_id: Option<String>,
     #[serde(default)]
     pid: Option<u32>,
     #[serde(default)]
@@ -3407,7 +3407,7 @@ impl ClickParams {
             return None;
         }
         Some(WindowTarget {
-            window_id: self.window_id,
+            window_id: self.window_id.clone(),
             pid: self.pid,
             tty: None,
             terminal_pid: None,
@@ -3505,7 +3505,7 @@ struct ScrollParams {
     // Optional window target (parity with click): the window is raised/focused
     // before scrolling so the wheel events land on the intended app.
     #[serde(default)]
-    window_id: Option<u64>,
+    window_id: Option<String>,
     #[serde(default)]
     pid: Option<u32>,
     #[serde(default)]
@@ -3546,7 +3546,7 @@ impl ScrollParams {
             return None;
         }
         Some(WindowTarget {
-            window_id: self.window_id,
+            window_id: self.window_id.clone(),
             pid: self.pid,
             tty: None,
             terminal_pid: None,
@@ -3573,7 +3573,7 @@ struct DragParams {
 struct PressKeyParams {
     key: String,
     #[serde(default)]
-    window_id: Option<u64>,
+    window_id: Option<String>,
     #[serde(default)]
     pid: Option<u32>,
     #[serde(default)]
@@ -3598,7 +3598,7 @@ struct PressKeyParams {
 struct TypeTextParams {
     text: String,
     #[serde(default)]
-    window_id: Option<u64>,
+    window_id: Option<String>,
     #[serde(default)]
     pid: Option<u32>,
     #[serde(default)]
@@ -3622,7 +3622,7 @@ struct TypeTextParams {
 impl PressKeyParams {
     fn window_target(&self) -> WindowTarget {
         WindowTarget {
-            window_id: self.window_id,
+            window_id: self.window_id.clone(),
             pid: self.pid,
             tty: self.tty.clone(),
             terminal_pid: self.terminal_pid,
@@ -3638,7 +3638,7 @@ impl PressKeyParams {
 impl TypeTextParams {
     fn window_target(&self) -> WindowTarget {
         WindowTarget {
-            window_id: self.window_id,
+            window_id: self.window_id.clone(),
             pid: self.pid,
             tty: self.tty.clone(),
             terminal_pid: self.terminal_pid,
@@ -4641,7 +4641,7 @@ impl ComputerUseLinux {
             Err(format!(
                 "Did not send input because {required} verification failed after activating the target window. Focus result: requested window_id {}, focused window_id {:?}.",
                 focus.requested_window.window_id,
-                focus.focused_window.as_ref().map(|window| window.window_id)
+                focus.focused_window.as_ref().map(|window| &window.window_id)
             ))
         }
     }
@@ -4864,7 +4864,7 @@ impl ComputerUseLinux {
             }
         };
         let backend = window.backend.clone();
-        let window_id = window.window_id;
+        let window_id = window.window_id.clone();
         match op(window).await {
             Ok(message) => {
                 // Re-query so the caller sees the compositor-final geometry
@@ -4986,7 +4986,7 @@ impl ComputerUseLinux {
             *cached = CachedAccessibilitySnapshot {
                 nodes: nodes.to_vec(),
                 pid: target_pid,
-                window_id: window.map(|window| window.window_id),
+                window_id: window.map(|window| window.window_id.clone()),
                 window_backend: window.map(|window| window.backend.clone()),
                 recovery_scope,
             };
@@ -5134,28 +5134,28 @@ impl ComputerUseLinux {
             .lock()
             .map_err(|_| "cached accessibility snapshot is unavailable".to_string())?;
         let window_id = if let Some(focus) = focus {
-            let requested_id = focus.requested_window.window_id;
+            let requested_id = &focus.requested_window.window_id;
             let exact = focus.exact_window_focused
                 && focus
                     .focused_window
                     .as_ref()
-                    .is_some_and(|window| window.window_id == requested_id);
+                    .is_some_and(|window| &window.window_id == requested_id);
             if !exact {
                 return Err(
                     "explicit window targeting requires exact KWin window focus, not app-only focus"
                         .to_string(),
                 );
             }
-            if let Some(cached_window_id) = cached.window_id {
+            if let Some(cached_window_id) = &cached.window_id {
                 if cached_window_id != requested_id {
                     return Err(format!(
                         "cached element belongs to window_id {cached_window_id}, not the explicitly targeted window_id {requested_id}"
                     ));
                 }
             }
-            Some(requested_id)
+            Some(requested_id.clone())
         } else {
-            cached.window_id
+            cached.window_id.clone()
         };
         let frame = depth_one_kwin_element_frame(&cached.nodes, node, center, global_point)?;
         Ok(KwinElementClickTarget {
@@ -5178,7 +5178,7 @@ impl ComputerUseLinux {
             .last_snapshot
             .lock()
             .ok()
-            .and_then(|snapshot| snapshot.window_id);
+            .and_then(|snapshot| snapshot.window_id.clone());
         let window = cached_window_id
             .map(|window_id| format!("window_id {window_id}"))
             .unwrap_or_else(|| "window_id unavailable".to_string());
@@ -5406,7 +5406,10 @@ impl ComputerUseLinux {
             .map(|snapshot| {
                 (
                     snapshot.recovery_scope.clone(),
-                    snapshot.window_id.zip(snapshot.window_backend.clone()),
+                    snapshot
+                        .window_id
+                        .clone()
+                        .zip(snapshot.window_backend.clone()),
                 )
             })
             .unwrap_or((None, None));
@@ -5449,8 +5452,7 @@ impl ComputerUseLinux {
             .or(refreshed.target_pid)
             .is_some_and(|pid| snapshot.root_pid == Some(pid));
         let window_scope_matches = if recovery_scope.params.window_id.is_some() {
-            // The resolver accepts JSON-rounded IDs. Compare the actual
-            // observed identity, not the raw requested number.
+            // Compare the observed identity and backend.
             original_window
                 .as_ref()
                 .zip(refreshed.window.as_ref())
@@ -9019,7 +9021,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
 
     #[test]
     fn readonly_targeted_screenshot_requires_focused_visible_window() {
-        let mut window = window_info(1, Some("Target"), None, None, None);
+        let mut window = window_info("1", Some("Target"), None, None, None);
         assert!(ensure_readonly_screenshot_target_is_visible(&window).is_err());
         window.focused = true;
         assert!(ensure_readonly_screenshot_target_is_visible(&window).is_ok());
@@ -9156,14 +9158,14 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
     }
 
     fn window_info(
-        window_id: u64,
+        window_id: &str,
         title: Option<&str>,
         app_id: Option<&str>,
         wm_class: Option<&str>,
         pid: Option<u32>,
     ) -> WindowInfo {
         WindowInfo {
-            window_id,
+            window_id: window_id.to_string(),
             title: title.map(str::to_string),
             app_id: app_id.map(str::to_string),
             wm_class: wm_class.map(str::to_string),
@@ -9185,7 +9187,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
 
     #[test]
     fn window_backend_names_the_backend_that_answered() {
-        let mut window = window_info(1, Some("Editor"), None, None, None);
+        let mut window = window_info("1", Some("Editor"), None, None, None);
         window.backend = NIRI_BACKEND.to_string();
         assert_eq!(window_backend(std::iter::once(&window)), NIRI_BACKEND);
         assert_eq!(window_backend(std::iter::empty()), UNAVAILABLE_BACKEND);
@@ -9278,7 +9280,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
     #[test]
     fn accessibility_filter_candidates_prefer_title_and_skip_synthetic_app_id() {
         let window = window_info(
-            42,
+            "42",
             Some("CU ATSPI GTK Test"),
             Some("window:46"),
             Some("cu_atspi_gtk_test.py"),
@@ -9299,7 +9301,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
     #[test]
     fn accessibility_filter_candidates_include_reverse_dns_leaf() {
         let window = window_info(
-            42,
+            "42",
             Some("Untitled — KWrite"),
             Some("org.kde.kwrite"),
             Some("kwrite"),
@@ -9391,8 +9393,8 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
     async fn app_id_authoritative_window_rejection_cannot_use_accessibility_fallback() {
         let backend = ComputerUseLinux::default();
         let windows = vec![
-            window_info(1, Some("KWrite"), Some("org.kde.kwrite"), None, None),
-            window_info(2, Some("Other"), Some("com.example.kwrite"), None, None),
+            window_info("1", Some("KWrite"), Some("org.kde.kwrite"), None, None),
+            window_info("2", Some("Other"), Some("com.example.kwrite"), None, None),
         ];
         for app_id in ["kwrite", "org.missing.kwrite"] {
             let params: GetAppStateParams =
@@ -9430,10 +9432,10 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
     #[tokio::test]
     async fn app_id_conflicting_resolved_window_cannot_use_pid_or_explicit_name() {
         let backend = ComputerUseLinux::default();
-        let window = window_info(1, Some("Kate"), Some("org.kde.kate"), None, Some(123));
+        let window = window_info("1", Some("Kate"), Some("org.kde.kate"), None, Some(123));
         for explicit_name in [None, Some("Kate")] {
             let params: GetAppStateParams = serde_json::from_value(serde_json::json!({
-                "window_id": 1,
+                "window_id": "1",
                 "app_id": "org.kde.kwrite",
                 "app_name_or_bundle_identifier": explicit_name,
             }))
@@ -9761,7 +9763,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
     #[test]
     fn kde_clipboard_routes_xterm_family_to_shift_insert() {
         for wm_class in ["xterm", "UXTerm", "urxvt", "rxvt-unicode", "koi8rxterm"] {
-            let window = window_info(1, Some("user@host"), None, Some(wm_class), Some(100));
+            let window = window_info("1", Some("user@host"), None, Some(wm_class), Some(100));
             assert_eq!(
                 kde_clipboard_terminal_shortcut(&WindowTarget::default(), Some(&window)),
                 Some(TerminalPasteShortcut::ShiftInsert),
@@ -9790,7 +9792,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
             ..Default::default()
         };
         let window = window_info(
-            1,
+            "1",
             Some("Browser"),
             Some("firefox"),
             Some("firefox"),
@@ -9810,7 +9812,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
             ..Default::default()
         };
         let window = window_info(
-            1,
+            "1",
             Some("Browser"),
             Some("firefox"),
             Some("firefox"),
@@ -9834,7 +9836,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
     #[test]
     fn kde_clipboard_routes_konsole_identity_to_terminal_paste() {
         let window = window_info(
-            1,
+            "1",
             Some("unflappable-donkey"),
             Some("org.kde.konsole"),
             Some("konsole"),
@@ -9850,7 +9852,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
     #[test]
     fn kde_clipboard_does_not_classify_terminal_words_in_browser_titles() {
         let window = window_info(
-            1,
+            "1",
             Some("xterm documentation"),
             Some("firefox"),
             Some("firefox"),
@@ -9866,7 +9868,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
     #[test]
     fn kde_clipboard_pty_metadata_does_not_change_editor_paste() {
         let mut window = window_info(
-            1,
+            "1",
             Some("xterm integration test"),
             Some("example-ide"),
             Some("ExampleIde"),
@@ -10174,7 +10176,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
 
     fn kwin_window(window_id: u64) -> WindowInfo {
         let mut window = window_info(
-            window_id,
+            &window_id.to_string(),
             Some("Editor"),
             Some("editor"),
             Some("editor"),
@@ -10194,7 +10196,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
             let target = backend
                 .cached_kwin_element_target(&nodes[2], (32, 16), false, None)
                 .unwrap_or_else(|error| panic!("{role}: {error}"));
-            assert_eq!(target.window_id, Some(42));
+            assert_eq!(target.window_id.as_deref(), Some("42"));
             assert_eq!(target.pid, Some(4242));
             assert_eq!((target.frame.width, target.frame.height), (800, 600));
         }
@@ -10212,7 +10214,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
         let target = backend
             .cached_kwin_element_target(&nodes[2], (32, 16), false, None)
             .unwrap();
-        assert_eq!(target.window_id, Some(42));
+        assert_eq!(target.window_id.as_deref(), Some("42"));
         assert_eq!(target.pid, Some(4242));
         assert_eq!((target.frame.x, target.frame.y), (0, 0));
         assert_eq!((target.frame.width, target.frame.height), (800, 600));
@@ -10299,7 +10301,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
             x: Some(7),
             y: Some(9),
             relative: Some(true),
-            window_id: Some(42),
+            window_id: Some("42".to_string()),
             ..Default::default()
         };
         apply_window_relative_click_coordinates(&mut relative, (133, 267, 1067, 800)).unwrap();
@@ -11491,9 +11493,10 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
             "prefix\0suffix".to_string(),
             "ş".repeat(WTYPE_MAX_TEXT_BYTES / 2 + 1),
         ] {
-            let params: TypeTextParams =
-                serde_json::from_value(serde_json::json!({"text": text, "window_id": u64::MAX}))
-                    .unwrap();
+            let params: TypeTextParams = serde_json::from_value(
+                serde_json::json!({"text": text, "window_id": u64::MAX.to_string()}),
+            )
+            .unwrap();
             let result = server.type_text(Parameters(params)).await.unwrap();
             let structured = result
                 .structured_content
@@ -11974,7 +11977,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
             y: Some(20),
             direction: "down".to_string(),
             pages: None,
-            window_id: Some(1),
+            window_id: Some("1".to_string()),
             pid: None,
             app_id: None,
             wm_class: None,
@@ -11995,7 +11998,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
             y: None,
             direction: "down".to_string(),
             pages: None,
-            window_id: Some(1),
+            window_id: Some("1".to_string()),
             pid: None,
             app_id: None,
             wm_class: None,
@@ -12016,7 +12019,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
             y: None,
             direction: "down".to_string(),
             pages: None,
-            window_id: Some(1),
+            window_id: Some("1".to_string()),
             pid: None,
             app_id: None,
             wm_class: None,
@@ -12038,7 +12041,7 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$CUL_POINTER_TEST_LOG"
             y: Some(20),
             direction: "down".to_string(),
             pages: None,
-            window_id: Some(1),
+            window_id: Some("1".to_string()),
             pid: None,
             app_id: None,
             wm_class: None,
@@ -12337,7 +12340,7 @@ mod action_recovery_tests {
 
     fn recovery_window(window_id: u64, pid: u32) -> WindowInfo {
         WindowInfo {
-            window_id,
+            window_id: window_id.to_string(),
             title: Some("Editor".to_string()),
             app_id: Some("editor".to_string()),
             wm_class: None,
@@ -12424,7 +12427,7 @@ mod action_recovery_tests {
         let params: GetAppStateParams = serde_json::from_value(serde_json::json!({
             "app_name_or_bundle_identifier": "org.example.Editor",
             "app_id": "org.example.Editor.desktop",
-            "window_id": 42,
+            "window_id": "42",
             "pid": 1234
         }))
         .unwrap();
@@ -12447,7 +12450,7 @@ mod action_recovery_tests {
             scope.params.app_id.as_deref(),
             Some("org.example.Editor.desktop")
         );
-        assert_eq!(scope.params.window_id, Some(42));
+        assert_eq!(scope.params.window_id.as_deref(), Some("42"));
         assert_eq!(scope.params.pid, Some(1234));
         assert_eq!(scope.target_pid, Some(1234));
 
@@ -12642,7 +12645,7 @@ mod action_recovery_tests {
                 &[action_node(0, OLD_REF)],
                 None,
                 None,
-                &serde_json::from_value(serde_json::json!({"window_id": 42})).unwrap(),
+                &serde_json::from_value(serde_json::json!({"window_id": "42"})).unwrap(),
                 true,
             )
             .await;
@@ -12695,7 +12698,7 @@ mod action_recovery_tests {
                     &[action_node(0, OLD_REF)],
                     None,
                     Some(&original_window),
-                    &serde_json::from_value(serde_json::json!({"window_id": 42})).unwrap(),
+                    &serde_json::from_value(serde_json::json!({"window_id": "42"})).unwrap(),
                     true,
                 )
                 .await;
@@ -12757,7 +12760,7 @@ mod action_recovery_tests {
         let scope = recovery_scope(serde_json::json!({
             "app_name_or_bundle_identifier": "org.example.Editor",
             "app_id": "org.example.Editor.desktop",
-            "window_id": 42,
+            "window_id": "42",
             "pid": 1234,
             "max_nodes": 50,
             "max_depth": 8
@@ -12809,7 +12812,7 @@ mod action_recovery_tests {
                             scope.params.app_id.as_deref(),
                             Some("org.example.Editor.desktop")
                         );
-                        assert_eq!(scope.params.window_id, Some(42));
+                        assert_eq!(scope.params.window_id.as_deref(), Some("42"));
                         assert_eq!(scope.params.pid, Some(1234));
                         assert_eq!(scope.params.max_nodes, Some(50));
                         assert_eq!(scope.params.max_depth, Some(8));
@@ -12850,7 +12853,7 @@ mod action_recovery_tests {
     #[tokio::test]
     async fn pid_scoped_recovery_invalidates_window_binding_after_local_resolution() {
         let old_window = WindowInfo {
-            window_id: 42,
+            window_id: "42".to_string(),
             title: Some("Editor".to_string()),
             app_id: Some("editor".to_string()),
             wm_class: None,
@@ -12879,7 +12882,7 @@ mod action_recovery_tests {
                 )
                 .await;
             let fresh_window = fresh_window_id.map(|window_id| WindowInfo {
-                window_id,
+                window_id: window_id.to_string(),
                 ..old_window.clone()
             });
             let Json(output) = backend
@@ -12926,7 +12929,7 @@ mod action_recovery_tests {
             let backend = ComputerUseLinux::default();
             let scope = recovery_scope(serde_json::json!({
                 "app_name_or_bundle_identifier": "Editor",
-                "window_id": 42
+                "window_id": "42"
             }));
             backend.cache_snapshot_with_window(
                 &[action_node(0, OLD_REF)],
@@ -12969,7 +12972,7 @@ mod action_recovery_tests {
             assert_eq!(queries.load(Ordering::SeqCst), 1);
             let cached = backend.last_snapshot.lock().unwrap();
             assert_eq!(cached.nodes[0].object_ref, OLD_REF);
-            assert_eq!(cached.window_id, Some(42));
+            assert_eq!(cached.window_id.as_deref(), Some("42"));
             assert_eq!(cached.window_backend.as_deref(), Some(KWIN_BACKEND));
         }
     }
@@ -12979,7 +12982,7 @@ mod action_recovery_tests {
         let backend = ComputerUseLinux::default();
         let mut scope = recovery_scope(serde_json::json!({
             "app_name_or_bundle_identifier": "Editor",
-            "window_id": 42
+            "window_id": "42"
         }));
         scope.target_pid = Some(1234);
         assert_eq!(scope.params.pid, None);
@@ -13139,7 +13142,7 @@ mod action_recovery_tests {
         let backend = ComputerUseLinux::default();
         let mut scope = recovery_scope(serde_json::json!({
             "app_name_or_bundle_identifier": "Editor",
-            "window_id": 42
+            "window_id": "42"
         }));
         scope.target_pid = Some(1234);
         backend.cache_snapshot_with_window(
@@ -13210,7 +13213,7 @@ mod action_recovery_tests {
                 &[action_node(0, NEW_REF)],
                 Some(5678),
                 Some(&recovery_window(42, 5678)),
-                &serde_json::from_value(serde_json::json!({"window_id": 42})).unwrap(),
+                &serde_json::from_value(serde_json::json!({"window_id": "42"})).unwrap(),
                 true,
             )
             .await;

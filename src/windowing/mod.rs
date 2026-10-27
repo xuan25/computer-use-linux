@@ -69,10 +69,10 @@ mod tests {
 
     #[test]
     fn focused_query_names_the_answering_backend_without_a_focused_window() {
-        let mut unfocused = window(1, "Editor", "editor", "editor");
+        let mut unfocused = window("1", "Editor", "editor", "editor");
         unfocused.backend = NIRI_BACKEND.to_string();
         let mut focused = unfocused.clone();
-        focused.window_id = 2;
+        focused.window_id = "2".to_string();
         focused.focused = true;
 
         let (backend, window) = focused_in(vec![unfocused.clone()]);
@@ -81,18 +81,18 @@ mod tests {
 
         let (backend, window) = focused_in(vec![unfocused, focused]);
         assert_eq!(backend, NIRI_BACKEND);
-        assert_eq!(window.map(|window| window.window_id), Some(2));
+        assert_eq!(window.map(|window| window.window_id), Some("2".to_string()));
 
         assert_eq!(focused_in(Vec::new()).0, UNAVAILABLE_BACKEND);
     }
 
-    fn window(window_id: u64, title: &str, app_id: &str, wm_class: &str) -> WindowInfo {
+    fn window(window_id: &str, title: &str, app_id: &str, wm_class: &str) -> WindowInfo {
         WindowInfo {
-            window_id,
+            window_id: window_id.to_string(),
             title: Some(title.to_string()),
             app_id: Some(app_id.to_string()),
             wm_class: Some(wm_class.to_string()),
-            pid: Some(window_id as u32 + 1000),
+            pid: Some(1000),
             bounds: Some(WindowBounds {
                 x: None,
                 y: None,
@@ -109,7 +109,7 @@ mod tests {
     }
 
     fn terminal_window(
-        window_id: u64,
+        window_id: &str,
         title: &str,
         tty: &str,
         active_pid: u32,
@@ -171,7 +171,7 @@ mod tests {
         }
         .requires_exact_focus());
         assert!(WindowTarget {
-            window_id: Some(123),
+            window_id: Some("123".to_string()),
             ..Default::default()
         }
         .requires_exact_focus());
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn exact_targets_require_extension_activation_backend() {
         let window = window(
-            2,
+            "2",
             "Ghostty",
             "com.mitchellh.ghostty.desktop",
             "com.mitchellh.ghostty",
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn app_targets_can_use_app_level_focus_backend() {
         let window = window(
-            2,
+            "2",
             "Ghostty",
             "com.mitchellh.ghostty.desktop",
             "com.mitchellh.ghostty",
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn cosmic_backend_can_exact_focus_targets() {
-        let mut window = window(2, "Codex", "codex-desktop", "codex-desktop");
+        let mut window = window("2", "Codex", "codex-desktop", "codex-desktop");
         window.backend = COSMIC_WAYLAND_BACKEND.to_string();
 
         ensure_backend_can_focus_target(
@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn i3_backend_can_exact_focus_targets() {
-        let mut window = window(2, "Codex", "codex-desktop", "codex-desktop");
+        let mut window = window("2", "Codex", "codex-desktop", "codex-desktop");
         window.backend = I3_BACKEND.to_string();
 
         ensure_backend_can_focus_target(
@@ -261,26 +261,26 @@ mod tests {
     #[test]
     fn resolves_target_by_window_id_first() {
         let windows = vec![
-            window(1, "Codex", "codex.desktop", "Codex"),
-            window(2, "Ghostty", "com.mitchellh.ghostty.desktop", "Ghostty"),
+            window("1", "Codex", "codex.desktop", "Codex"),
+            window("2", "Ghostty", "com.mitchellh.ghostty.desktop", "Ghostty"),
         ];
 
         let matched = resolve_window_target(
             &windows,
             &WindowTarget {
-                window_id: Some(2),
+                window_id: Some("2".to_string()),
                 title: Some("Codex".to_string()),
                 ..Default::default()
             },
         )
         .unwrap();
 
-        assert_eq!(matched.window_id, 2);
+        assert_eq!(matched.window_id, "2");
     }
 
     #[test]
     fn app_id_alias_matches_reverse_dns_leaf_case_insensitively() {
-        let windows = vec![window(1, "KWrite", "org.kde.kwrite", "kwrite")];
+        let windows = vec![window("1", "KWrite", "org.kde.kwrite", "kwrite")];
         for app_id in ["kwrite", "KWRITE", "org.kde.kwrite"] {
             let matched = resolve_window_target(
                 &windows,
@@ -290,11 +290,11 @@ mod tests {
                 },
             )
             .unwrap();
-            assert_eq!(matched.window_id, 1);
+            assert_eq!(matched.window_id, "1");
         }
 
         let ghostty = vec![window(
-            2,
+            "2",
             "Ghostty",
             "com.mitchellh.ghostty.desktop",
             "Ghostty",
@@ -320,8 +320,8 @@ mod tests {
     #[test]
     fn exact_app_id_match_precedes_leaf_aliases() {
         let windows = vec![
-            window(1, "Other KWrite", "org.kde.kwrite", "kwrite"),
-            window(2, "Exact KWrite", "kwrite", "kwrite"),
+            window("1", "Other KWrite", "org.kde.kwrite", "kwrite"),
+            window("2", "Exact KWrite", "kwrite", "kwrite"),
         ];
 
         let matched = resolve_window_target(
@@ -333,14 +333,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(matched.window_id, 2);
+        assert_eq!(matched.window_id, "2");
     }
 
     #[test]
     fn app_id_alias_rejects_ambiguous_applications() {
         let windows = vec![
-            window(1, "KDE KWrite", "org.kde.kwrite", "kwrite"),
-            window(2, "Other KWrite", "com.example.kwrite", "kwrite"),
+            window("1", "KDE KWrite", "org.kde.kwrite", "kwrite"),
+            window("2", "Other KWrite", "com.example.kwrite", "kwrite"),
         ];
 
         let error = resolve_window_target(
@@ -360,8 +360,8 @@ mod tests {
     #[test]
     fn app_id_alias_allows_multiple_windows_of_one_application() {
         let windows = vec![
-            window(1, "First", "org.kde.kwrite", "kwrite"),
-            window(2, "Second", "org.kde.kwrite", "kwrite"),
+            window("1", "First", "org.kde.kwrite", "kwrite"),
+            window("2", "Second", "org.kde.kwrite", "kwrite"),
         ];
 
         let matched = resolve_window_target(
@@ -373,16 +373,13 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(matched.window_id, 1);
+        assert_eq!(matched.window_id, "1");
     }
 
     #[test]
-    fn resolves_large_window_id_after_json_number_rounding() {
-        let exact_window_id = 7_511_476_032_840_641_491;
-        let rounded_window_id = 7_511_476_032_840_642_000;
-        assert_ne!(exact_window_id, rounded_window_id);
-        assert_eq!(exact_window_id as f64, rounded_window_id as f64);
-
+    fn large_window_ids_match_exactly_as_strings() {
+        let exact_window_id = "7511476032840641491";
+        let rounded_window_id = "7511476032840642000";
         let windows = vec![window(
             exact_window_id,
             "Untitled — Kate",
@@ -393,55 +390,37 @@ mod tests {
         let matched = resolve_window_target(
             &windows,
             &WindowTarget {
-                window_id: Some(rounded_window_id),
+                window_id: Some(exact_window_id.to_string()),
                 ..Default::default()
             },
         )
         .unwrap();
-
         assert_eq!(matched.window_id, exact_window_id);
-    }
 
-    #[test]
-    fn rounded_window_id_can_be_disambiguated_by_title() {
-        let first_window_id = 7_511_476_032_840_641_491;
-        let second_window_id = 7_511_476_032_840_641_999;
-        let rounded_window_id = 7_511_476_032_840_642_000;
-        assert_eq!(first_window_id as f64, rounded_window_id as f64);
-        assert_eq!(second_window_id as f64, rounded_window_id as f64);
-
-        let windows = vec![
-            window(
-                first_window_id,
-                "First - Kate",
-                "org.kde.kate",
-                "org.kde.kate",
-            ),
-            window(
-                second_window_id,
-                "Second - Kate",
-                "org.kde.kate",
-                "org.kde.kate",
-            ),
-        ];
-
-        let matched = resolve_window_target(
+        assert!(resolve_window_target(
             &windows,
             &WindowTarget {
-                window_id: Some(rounded_window_id),
-                title: Some("Second".to_string()),
+                window_id: Some(rounded_window_id.to_string()),
                 ..Default::default()
             },
         )
-        .unwrap();
-
-        assert_eq!(matched.window_id, second_window_id);
+        .is_err());
     }
 
     #[test]
     fn pid_target_reports_ambiguous_matches() {
-        let mut first = window(1, "Ghostty One", "com.mitchellh.ghostty.desktop", "Ghostty");
-        let mut second = window(2, "Ghostty Two", "com.mitchellh.ghostty.desktop", "Ghostty");
+        let mut first = window(
+            "1",
+            "Ghostty One",
+            "com.mitchellh.ghostty.desktop",
+            "Ghostty",
+        );
+        let mut second = window(
+            "2",
+            "Ghostty Two",
+            "com.mitchellh.ghostty.desktop",
+            "Ghostty",
+        );
         first.pid = Some(300);
         second.pid = Some(300);
 
@@ -461,7 +440,7 @@ mod tests {
     #[test]
     fn resolves_target_by_title_substring_case_insensitive() {
         let windows = vec![window(
-            2,
+            "2",
             "avifenesh@host: ~/projects/codex",
             "com.mitchellh.ghostty.desktop",
             "Ghostty",
@@ -476,14 +455,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(matched.window_id, 2);
+        assert_eq!(matched.window_id, "2");
     }
 
     #[test]
     fn resolves_terminal_target_by_tty() {
         let windows = vec![
-            terminal_window(1, "Claude", "/dev/pts/0", 101, "claude", "/tmp"),
-            terminal_window(2, "Codex", "/dev/pts/1", 201, "codex", "/home/avifenesh"),
+            terminal_window("1", "Claude", "/dev/pts/0", 101, "claude", "/tmp"),
+            terminal_window("2", "Codex", "/dev/pts/1", 201, "codex", "/home/avifenesh"),
         ];
 
         let matched = resolve_window_target(
@@ -495,14 +474,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(matched.window_id, 2);
+        assert_eq!(matched.window_id, "2");
     }
 
     #[test]
     fn resolves_terminal_target_by_active_command() {
         let windows = vec![
-            terminal_window(1, "Claude", "/dev/pts/0", 101, "claude", "/tmp"),
-            terminal_window(2, "Codex", "/dev/pts/1", 201, "codex", "/home/avifenesh"),
+            terminal_window("1", "Claude", "/dev/pts/0", 101, "claude", "/tmp"),
+            terminal_window("2", "Codex", "/dev/pts/1", 201, "codex", "/home/avifenesh"),
         ];
 
         let matched = resolve_window_target(
@@ -514,15 +493,15 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(matched.window_id, 2);
+        assert_eq!(matched.window_id, "2");
     }
 
     #[test]
     fn resolves_terminal_target_by_cwd_suffix() {
         let windows = vec![
-            terminal_window(1, "Home", "/dev/pts/0", 101, "zsh", "/home/avifenesh"),
+            terminal_window("1", "Home", "/dev/pts/0", 101, "zsh", "/home/avifenesh"),
             terminal_window(
-                2,
+                "2",
                 "Project",
                 "/dev/pts/1",
                 201,
@@ -540,13 +519,13 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(matched.window_id, 2);
+        assert_eq!(matched.window_id, "2");
     }
 
     #[test]
     fn terminal_cwd_does_not_match_arbitrary_substrings() {
         let windows = vec![terminal_window(
-            1,
+            "1",
             "Project",
             "/dev/pts/1",
             201,
@@ -570,8 +549,8 @@ mod tests {
     #[test]
     fn terminal_target_reports_ambiguous_matches() {
         let windows = vec![
-            terminal_window(1, "One", "/dev/pts/0", 101, "zsh", "/home/avifenesh"),
-            terminal_window(2, "Two", "/dev/pts/1", 201, "zsh", "/home/avifenesh"),
+            terminal_window("1", "One", "/dev/pts/0", 101, "zsh", "/home/avifenesh"),
+            terminal_window("2", "Two", "/dev/pts/1", 201, "zsh", "/home/avifenesh"),
         ];
 
         let error = resolve_window_target(
@@ -643,7 +622,7 @@ mod tests {
         let windows = parse_hyprland_clients(clients_json).unwrap();
 
         assert_eq!(windows.len(), 3);
-        assert_eq!(windows[0].window_id, 0x559952b6db60);
+        assert_eq!(windows[0].window_id, "0x559952b6db60");
         assert_eq!(windows[0].app_id.as_deref(), Some("brave-browser"));
         assert_eq!(windows[0].wm_class.as_deref(), Some("brave-browser"));
         assert_eq!(windows[0].title.as_deref(), Some("Repo - Brave"));
@@ -734,7 +713,7 @@ mod tests {
         let windows = parse_i3_tree(tree_json).unwrap();
 
         assert_eq!(windows.len(), 2);
-        assert_eq!(windows[0].window_id, 67108868);
+        assert_eq!(windows[0].window_id, "67108868");
         assert_eq!(windows[0].title.as_deref(), Some("Codex"));
         assert_eq!(windows[0].app_id.as_deref(), Some("codex"));
         assert_eq!(windows[0].wm_class.as_deref(), Some("Codex"));
@@ -758,7 +737,7 @@ mod tests {
 
     #[test]
     fn hyprland_backend_can_exact_focus_targets() {
-        let mut window = window(2, "Codex", "codex-desktop", "codex-desktop");
+        let mut window = window("2", "Codex", "codex-desktop", "codex-desktop");
         window.backend = HYPRLAND_BACKEND.to_string();
 
         ensure_backend_can_focus_target(
@@ -773,7 +752,7 @@ mod tests {
 
     #[test]
     fn kwin_backend_can_exact_focus_targets() {
-        let mut window = window(2, "Codex", "codex-desktop", "codex-desktop");
+        let mut window = window("2", "Codex", "codex-desktop", "codex-desktop");
         window.backend = KWIN_BACKEND.to_string();
 
         ensure_backend_can_focus_target(
@@ -802,9 +781,9 @@ mod tests {
             ("height".to_string(), owned_value(Value::from(800_u32))),
         ]);
 
-        let info = window_from_properties(42, &properties);
+        let info = window_from_properties("42", &properties);
 
-        assert_eq!(info.window_id, 42);
+        assert_eq!(info.window_id, "42");
         assert_eq!(info.title.as_deref(), Some("Ghostty"));
         assert!(info.focused);
         assert_eq!(info.client_type.as_deref(), Some("wayland"));

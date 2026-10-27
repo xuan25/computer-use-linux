@@ -213,13 +213,13 @@ fn windows_from_hyprland_clients(clients: Vec<HyprlandClient>) -> Result<Vec<Win
         .filter(|client| client.mapped.unwrap_or(true))
         .map(WindowInfo::try_from)
         .collect::<Result<Vec<_>>>()?;
-    windows.sort_by_key(|window| window.window_id);
+    windows.sort_by_key(|window| window.window_id.clone());
     enrich_terminal_windows(&mut windows);
     Ok(windows)
 }
 
-pub async fn activate_window(window_id: u64) -> Result<()> {
-    let address = format!("address:0x{window_id:x}");
+pub async fn activate_window(window_id: &str) -> Result<()> {
+    let address = format!("address:{window_id}");
     let lua_dispatch = lua_focus_dispatch(&address);
     let lua_output = hyprctl_output_async(&["dispatch", &lua_dispatch])
         .await
@@ -406,7 +406,6 @@ impl TryFrom<HyprlandClient> for WindowInfo {
     type Error = anyhow::Error;
 
     fn try_from(client: HyprlandClient) -> Result<Self> {
-        let window_id = parse_hyprland_address(&client.address)?;
         let bounds = client.size.map(|[width, height]| WindowBounds {
             x: client.at.map(|[x, _]| x),
             y: client.at.map(|[_, y]| y),
@@ -422,7 +421,7 @@ impl TryFrom<HyprlandClient> for WindowInfo {
         });
 
         Ok(WindowInfo {
-            window_id,
+            window_id: client.address,
             title: client.title,
             app_id: client.class_name.clone(),
             wm_class: client.class_name,
@@ -436,15 +435,6 @@ impl TryFrom<HyprlandClient> for WindowInfo {
             terminal: None,
         })
     }
-}
-
-fn parse_hyprland_address(address: &str) -> Result<u64> {
-    let hex = address
-        .trim()
-        .strip_prefix("0x")
-        .context("Hyprland window address did not start with 0x")?;
-    u64::from_str_radix(hex, 16)
-        .with_context(|| format!("failed to parse Hyprland window address {address}"))
 }
 
 #[cfg(test)]

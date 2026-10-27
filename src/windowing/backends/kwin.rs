@@ -65,19 +65,19 @@ pub(crate) async fn element_click_snapshot() -> Result<KwinElementClickSnapshot>
     KwinElementClickSnapshot::from_json(&json)
 }
 
-pub async fn activate_window(window_id: u64) -> Result<()> {
+pub async fn activate_window(window_id: &str) -> Result<()> {
     let uuid = kwin_uuid_for_window_id(window_id).await?.with_context(|| {
         format!("No KWin window matched window_id {window_id} during activation")
     })?;
     call_kwin_activate_script(&uuid).await
 }
 
-async fn kwin_uuid_for_window_id(window_id: u64) -> Result<Option<String>> {
+async fn kwin_uuid_for_window_id(window_id: &str) -> Result<Option<String>> {
     let json = call_kwin_window_script().await?;
     let snapshot = parse_kwin_snapshot(&json)?;
     Ok(snapshot.windows.into_iter().find_map(|window| {
         let uuid = window.kwin_uuid()?;
-        (kwin_window_id_from_uuid(&uuid) == window_id).then_some(uuid)
+        (kwin_window_id_from_uuid(&uuid).to_string() == window_id).then_some(uuid)
     }))
 }
 
@@ -951,7 +951,7 @@ fn parse_kwin_windows(json: &str) -> Result<Vec<WindowInfo>> {
         .filter(element_window)
         .map(WindowInfo::try_from)
         .collect::<Result<Vec<_>>>()?;
-    windows.sort_by_key(|window| window.window_id);
+    windows.sort_by_key(|window| window.window_id.clone());
     Ok(windows)
 }
 
@@ -1060,9 +1060,9 @@ pub(crate) struct KwinElementFrame {
     pub(crate) height: i32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct KwinElementClickTarget {
-    pub(crate) window_id: Option<u64>,
+    pub(crate) window_id: Option<String>,
     pub(crate) pid: Option<u32>,
     pub(crate) frame: KwinElementFrame,
     pub(crate) center: (i32, i32),
@@ -1228,14 +1228,14 @@ impl KwinElementClickSnapshot {
         let pid = target
             .pid
             .context("cached element has no root PID identity")?;
-        if let Some(window_id) = target.window_id {
+        if let Some(window_id) = target.window_id.as_deref() {
             let identified = self
                 .windows
                 .iter()
                 .filter(|window| {
-                    window
-                        .kwin_uuid()
-                        .is_some_and(|uuid| kwin_window_id_from_uuid(&uuid) == window_id)
+                    window.kwin_uuid().is_some_and(|uuid| {
+                        kwin_window_id_from_uuid(&uuid).to_string() == window_id
+                    })
                 })
                 .collect::<Vec<_>>();
             match identified.as_slice() {
@@ -1270,10 +1270,10 @@ impl KwinElementClickSnapshot {
                 "AT-SPI frame matches multiple same-PID KWin windows; focus or a requested window_id cannot prove element ownership"
             ),
         };
-        if target.window_id.is_some_and(|id| {
+        if target.window_id.as_deref().is_some_and(|id| {
             window
                 .kwin_uuid()
-                .is_none_or(|uuid| kwin_window_id_from_uuid(&uuid) != id)
+                .is_none_or(|uuid| kwin_window_id_from_uuid(&uuid).to_string() != id)
         }) {
             anyhow::bail!("selected AT-SPI frame belongs to a different KWin window than the cached or requested window identity");
         }
@@ -1540,7 +1540,7 @@ impl TryFrom<KwinRawWindow> for WindowInfo {
         let client_type = clean_string(window.client_type.as_deref());
 
         Ok(WindowInfo {
-            window_id: kwin_window_id_from_uuid(&uuid),
+            window_id: kwin_window_id_from_uuid(&uuid).to_string(),
             title: clean_string(window.caption.as_deref()),
             app_id,
             wm_class,
@@ -1710,7 +1710,10 @@ mod adapter_tests {
         let windows = parse_kwin_windows(windows_json).unwrap();
 
         assert_eq!(windows.len(), 1);
-        assert_eq!(windows[0].window_id, kwin_window_id_from_uuid(uuid));
+        assert_eq!(
+            windows[0].window_id,
+            kwin_window_id_from_uuid(uuid).to_string()
+        );
         assert_eq!(windows[0].title.as_deref(), Some("Codex"));
         assert_eq!(windows[0].app_id.as_deref(), Some("codex-desktop"));
         assert_eq!(windows[0].wm_class.as_deref(), Some("codex-desktop"));
@@ -1825,7 +1828,7 @@ mod element_click_tests {
 
     fn target(atspi: [i32; 4], center: (i32, i32)) -> KwinElementClickTarget {
         KwinElementClickTarget {
-            window_id: Some(kwin_window_id_from_uuid(UUID)),
+            window_id: Some(kwin_window_id_from_uuid(UUID).to_string()),
             pid: Some(PID),
             frame: KwinElementFrame {
                 x: atspi[0],
@@ -1997,13 +2000,13 @@ mod element_click_tests {
             vec![first, second],
             vec![output("DP-1", rect(0, 0, 2560, 1440), json!(1.5))],
         );
-        for window_id in [None, Some(kwin_window_id_from_uuid(UUID))] {
+        for window_id in [None, Some(kwin_window_id_from_uuid(UUID).to_string())] {
             for global_point in [false, true] {
                 let mut target = target(
                     [0, 0, 800, 600],
                     if global_point { (278, 352) } else { (32, 16) },
                 );
-                target.window_id = window_id;
+                target.window_id = window_id.clone();
                 target.global_point = global_point;
                 assert!(snapshot.map_element_click(&target, 3840, 2160).is_err());
             }
@@ -2296,7 +2299,7 @@ mod element_click_tests {
                 .logical,
             (410, 110)
         );
-        pid_target.window_id = Some(kwin_window_id_from_uuid(UUID));
+        pid_target.window_id = Some(kwin_window_id_from_uuid(UUID).to_string());
         let error = focused
             .map_element_click(&pid_target, 1000, 800)
             .unwrap_err()

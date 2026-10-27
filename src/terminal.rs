@@ -70,7 +70,7 @@ fn enrich_terminal_windows_with_processes(windows: &mut [WindowInfo], processes:
             continue;
         }
 
-        window_indexes.sort_by_key(|index| windows[*index].window_id);
+        window_indexes.sort_by_key(|index| windows[*index].window_id.clone());
         sessions.sort_by_key(|session| session.root_start_ticks);
 
         let confidence = if window_indexes.len() == 1 && sessions.len() == 1 {
@@ -406,9 +406,9 @@ mod tests {
     use super::*;
     use crate::windows::{WindowBounds, GNOME_SHELL_EXTENSION_BACKEND};
 
-    fn terminal_window(window_id: u64, pid: u32) -> WindowInfo {
+    fn terminal_window(window_id: &str, pid: u32) -> WindowInfo {
         WindowInfo {
-            window_id,
+            window_id: window_id.to_string(),
             title: Some("Ghostty".to_string()),
             app_id: Some("com.mitchellh.ghostty.desktop".to_string()),
             wm_class: Some("com.mitchellh.ghostty".to_string()),
@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn assigns_terminal_sessions_by_window_and_pty_creation_order() {
-        let mut windows = vec![terminal_window(11, 100), terminal_window(12, 100)];
+        let mut windows = vec![terminal_window("11", 100), terminal_window("12", 100)];
         let processes = vec![
             process(100, 1, 1, "ghostty", None),
             process(200, 100, 10, "sh", Some("/dev/pts/0")),
@@ -479,7 +479,7 @@ mod tests {
 
     #[test]
     fn leaves_terminal_context_empty_when_window_session_counts_do_not_match() {
-        let mut windows = vec![terminal_window(11, 100), terminal_window(12, 100)];
+        let mut windows = vec![terminal_window("11", 100), terminal_window("12", 100)];
         let processes = vec![
             process(100, 1, 1, "ghostty", None),
             process(200, 100, 10, "sh", Some("/dev/pts/0")),
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn terminal_paste_identity_matching_is_exact() {
-        let mut window = terminal_window(11, 100);
+        let mut window = terminal_window("11", 100);
         window.app_id = Some("com.example.footnotes".to_string());
         window.wm_class = Some("kitty-helper".to_string());
 
@@ -531,7 +531,7 @@ mod tests {
                 TerminalPasteShortcut::CtrlShiftV,
             ),
         ] {
-            let mut window = terminal_window(11, 100);
+            let mut window = terminal_window("11", 100);
             window.app_id = Some(identity.to_string());
             window.wm_class = None;
             assert_eq!(
@@ -544,7 +544,7 @@ mod tests {
 
     #[test]
     fn terminal_paste_accepts_known_wm_class_but_not_pty_metadata_alone() {
-        let mut window = terminal_window(11, 100);
+        let mut window = terminal_window("11", 100);
         window.app_id = None;
         window.wm_class = Some("qterminal".to_string());
         assert_eq!(
@@ -571,7 +571,7 @@ mod tests {
 
     #[test]
     fn enrichment_preserves_xterm_class_variants() {
-        let mut window = terminal_window(11, 100);
+        let mut window = terminal_window("11", 100);
         window.title = Some("user@host: ~".to_string());
         window.app_id = Some("custom-instance".to_string());
         window.wm_class = Some("KOI8RXTerm".to_string());
@@ -592,7 +592,7 @@ mod tests {
 
     #[test]
     fn pty_metadata_does_not_imply_a_terminal_paste_capability() {
-        let mut window = terminal_window(11, 100);
+        let mut window = terminal_window("11", 100);
         window.title = Some("xterm integration test".to_string());
         window.app_id = Some("example-ide".to_string());
         window.wm_class = Some("ExampleIde".to_string());
@@ -610,7 +610,7 @@ mod tests {
 
     #[test]
     fn enriches_x11_ghostty_with_custom_class_and_plain_title() {
-        let mut window = terminal_window(11, 100);
+        let mut window = terminal_window("11", 100);
         window.title = Some("igor@host: ~".to_string());
         window.app_id = Some("ghostty".to_string());
         window.wm_class = Some("my-custom-terminal".to_string());

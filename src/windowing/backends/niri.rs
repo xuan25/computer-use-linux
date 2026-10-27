@@ -79,31 +79,33 @@ pub async fn list_windows() -> Result<Vec<WindowInfo>> {
 /// successful return here means "the compositor accepted the action", not "the
 /// window is now focused". Callers that need certainty re-query the focused
 /// window, which is what the server's focus verification already does.
-pub async fn activate_window(window_id: u64) -> Result<()> {
-    tokio::task::spawn_blocking(move || activate_window_blocking(window_id))
+pub async fn activate_window(window_id: &str) -> Result<()> {
+    let window_id = window_id.to_string();
+    tokio::task::spawn_blocking(move || activate_window_blocking(&window_id))
         .await
         .context("niri focus task panicked")?
 }
 
-fn activate_window_blocking(window_id: u64) -> Result<()> {
-    let request = format!("{{\"Action\":{{\"FocusWindow\":{{\"id\":{window_id}}}}}}}");
-    let cli_args = [
-        "msg",
-        "action",
-        "focus-window",
-        "--id",
-        &window_id.to_string(),
-    ];
+fn activate_window_blocking(window_id: &str) -> Result<()> {
+    let cli_args = ["msg", "action", "focus-window", "--id", window_id];
     match cli_action(&cli_args) {
         Ok(()) => Ok(()),
-        Err(cli_error) => match socket_request(&request)
-            .and_then(|reply| ensure_socket_action_succeeded(&request, &reply))
-        {
-            Ok(()) => Ok(()),
-            Err(socket_error) => Err(anyhow!(
-                "niri action focus-window --id {window_id} failed: {cli_error:#} (the direct niri IPC fallback also failed: {socket_error:#})"
-            )),
-        },
+        Err(cli_error) => {
+            let request = format!(
+                "{{\"Action\":{{\"FocusWindow\":{{\"id\":{}}}}}}}",
+                window_id.parse::<u64>().with_context(|| {
+                    format!("niri window_id {window_id:?} is not a valid unsigned integer")
+                })?
+            );
+            match socket_request(&request)
+                .and_then(|reply| ensure_socket_action_succeeded(&request, &reply))
+            {
+                Ok(()) => Ok(()),
+                Err(socket_error) => Err(anyhow!(
+                    "niri action focus-window --id {window_id} failed: {cli_error:#} (the direct niri IPC fallback also failed: {socket_error:#})"
+                )),
+            }
+        }
     }
 }
 
@@ -119,7 +121,7 @@ fn list_windows_with_transport() -> Result<(Vec<WindowInfo>, &'static str)> {
         .into_iter()
         .map(|window| window.into_window_info(&layout))
         .collect::<Vec<_>>();
-    windows.sort_by_key(|window| window.window_id);
+    windows.sort_by_key(|window| window.window_id.clone());
     enrich_terminal_windows(&mut windows);
     Ok((windows, reply.transport))
 }
@@ -459,7 +461,8 @@ fn xdg_runtime_dir() -> Option<PathBuf> {
 
 #[derive(Debug, Deserialize)]
 struct NiriWindow {
-    id: u64,
+    #[serde(deserialize_with = "deserialize_window_id")]
+    id: String,
     title: Option<String>,
     app_id: Option<String>,
     pid: Option<i64>,
@@ -470,6 +473,13 @@ struct NiriWindow {
     is_minimized: bool,
     #[serde(default)]
     layout: Option<NiriWindowLayout>,
+}
+
+fn deserialize_window_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    serde_json::Number::deserialize(deserializer).map(|id| id.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -668,9 +678,9 @@ mod tests {
         assert_eq!(
             windows
                 .iter()
-                .map(|window| window.window_id)
+                .map(|window| window.window_id.as_str())
                 .collect::<Vec<_>>(),
-            [41, 48, 37]
+            ["41", "48", "37"]
         );
 
         let zen = &windows[1];

@@ -8,8 +8,8 @@ export interface GeneratedMcpToolDefinition {
 }
 
 export const GENERATED_SERVER_VERSION = "0.7.28";
-export const GENERATED_TOOL_CATALOG_HASH = "711deb97eb5c8a6cbe0a2fadbb64fdffc7592e304479dbbf277d3fcc4d58210f";
-export const GENERATED_SHELL_TOOL_CATALOG_HASH = "1a927deb2579d314a975afc586bd31010862141779cbe7af50cd76f0387a607c";
+export const GENERATED_TOOL_CATALOG_HASH = "96a8c6737ceebc11b018f2d2c6ab1436fe8442a368212cabf3df5e7eac6377c5";
+export const GENERATED_SHELL_TOOL_CATALOG_HASH = "ddc02aa4e0e350cbab036f2a4c4283f1478959230020db6ec000ada7315fd5e3";
 export const GENERATED_MCP_TOOLS =
 [
   {
@@ -162,9 +162,8 @@ export const GENERATED_MCP_TOOLS =
         },
         "window_id": {
           "default": null,
-          "minimum": 0,
           "type": [
-            "integer",
+            "string",
             "null"
           ]
         },
@@ -365,9 +364,8 @@ export const GENERATED_MCP_TOOLS =
         },
         "window_id": {
           "default": null,
-          "minimum": 0,
           "type": [
-            "integer",
+            "string",
             "null"
           ]
         },
@@ -739,9 +737,8 @@ export const GENERATED_MCP_TOOLS =
         "window_id": {
           "default": null,
           "description": "Compositor window id. Also scopes the accessibility tree to that window's\napplication when possible.",
-          "minimum": 0,
           "type": [
-            "integer",
+            "string",
             "null"
           ]
         },
@@ -961,9 +958,8 @@ export const GENERATED_MCP_TOOLS =
         },
         "window_id": {
           "default": null,
-          "minimum": 0,
           "type": [
-            "integer",
+            "string",
             "null"
           ]
         },
@@ -1298,9 +1294,8 @@ export const GENERATED_MCP_TOOLS =
         },
         "window_id": {
           "default": null,
-          "minimum": 0,
           "type": [
-            "integer",
+            "string",
             "null"
           ]
         },
@@ -1479,9 +1474,8 @@ export const GENERATED_MCP_TOOLS =
         },
         "window_id": {
           "default": null,
-          "minimum": 0,
           "type": [
-            "integer",
+            "string",
             "null"
           ]
         },
@@ -1619,9 +1613,8 @@ export const GENERATED_MCP_TOOLS =
         },
         "window_id": {
           "default": null,
-          "minimum": 0,
           "type": [
-            "integer",
+            "string",
             "null"
           ]
         },
@@ -1780,9 +1773,8 @@ export const GENERATED_MCP_TOOLS =
         },
         "window_id": {
           "default": null,
-          "minimum": 0,
           "type": [
-            "integer",
+            "string",
             "null"
           ]
         },
@@ -2156,9 +2148,8 @@ export const GENERATED_MCP_TOOLS =
         },
         "window_id": {
           "default": null,
-          "minimum": 0,
           "type": [
-            "integer",
+            "string",
             "null"
           ]
         },

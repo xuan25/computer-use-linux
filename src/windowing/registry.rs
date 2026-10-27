@@ -206,7 +206,7 @@ async fn list_windows_for(backend: BackendKind) -> Result<Vec<WindowInfo>> {
 
 pub async fn activate_window(window: &WindowInfo) -> Result<()> {
     match window.backend.as_str() {
-        GNOME_SHELL_EXTENSION_BACKEND => gnome::activate_extension_window(window.window_id).await,
+        GNOME_SHELL_EXTENSION_BACKEND => gnome::activate_extension_window(&window.window_id).await,
         GNOME_SHELL_INTROSPECT_BACKEND => {
             let app_id = window
                 .app_id
@@ -220,12 +220,12 @@ pub async fn activate_window(window: &WindowInfo) -> Result<()> {
                 })?;
             gnome::focus_app(app_id).await
         }
-        COSMIC_WAYLAND_BACKEND => cosmic::activate_window(window.window_id).await,
-        KWIN_BACKEND => kwin::activate_window(window.window_id).await,
-        HYPRLAND_BACKEND => hyprland::activate_window(window.window_id).await,
-        NIRI_BACKEND => niri::activate_window(window.window_id).await,
-        I3_BACKEND => i3::activate_window(window.window_id).await,
-        X11_BACKEND => x11::activate_window(window.window_id).await,
+        COSMIC_WAYLAND_BACKEND => cosmic::activate_window(&window.window_id).await,
+        KWIN_BACKEND => kwin::activate_window(&window.window_id).await,
+        HYPRLAND_BACKEND => hyprland::activate_window(&window.window_id).await,
+        NIRI_BACKEND => niri::activate_window(&window.window_id).await,
+        I3_BACKEND => i3::activate_window(&window.window_id).await,
+        X11_BACKEND => x11::activate_window(&window.window_id).await,
         backend => Err(anyhow!(
             "Unsupported window backend for activation: {backend}"
         )),
@@ -254,9 +254,9 @@ pub async fn focused_window_for_backend(backend: &str) -> Result<Option<WindowIn
 pub async fn move_window(window: &WindowInfo, x: i32, y: i32) -> Result<String> {
     match window.backend.as_str() {
         GNOME_SHELL_EXTENSION_BACKEND => {
-            gnome::move_extension_window(window.window_id, x, y).await
+            gnome::move_extension_window(&window.window_id, x, y).await
         }
-        X11_BACKEND => x11::move_window(window.window_id, x, y).await,
+        X11_BACKEND => x11::move_window(&window.window_id, x, y).await,
         backend => Err(anyhow!(
             "Window backend {backend} cannot move windows; move_window needs the computer-use-linux GNOME Shell extension or a generic X11/EWMH session."
         )),
@@ -266,9 +266,9 @@ pub async fn move_window(window: &WindowInfo, x: i32, y: i32) -> Result<String> 
 pub async fn resize_window(window: &WindowInfo, width: i32, height: i32) -> Result<String> {
     match window.backend.as_str() {
         GNOME_SHELL_EXTENSION_BACKEND => {
-            gnome::resize_extension_window(window.window_id, width, height).await
+            gnome::resize_extension_window(&window.window_id, width, height).await
         }
-        X11_BACKEND => x11::resize_window(window.window_id, width, height).await,
+        X11_BACKEND => x11::resize_window(&window.window_id, width, height).await,
         backend => Err(anyhow!(
             "Window backend {backend} cannot resize windows; resize_window needs the computer-use-linux GNOME Shell extension or a generic X11/EWMH session."
         )),
@@ -320,7 +320,7 @@ mod tests {
 
     fn window(backend: &str) -> WindowInfo {
         WindowInfo {
-            window_id: 1,
+            window_id: "1".to_string(),
             title: Some("Codex".to_string()),
             app_id: Some("codex-desktop".to_string()),
             wm_class: Some("codex-desktop".to_string()),

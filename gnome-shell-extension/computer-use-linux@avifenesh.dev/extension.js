@@ -233,7 +233,7 @@ class WindowControlDBus extends GObject.Object {
         const workspace = window.get_workspace?.();
 
         return {
-            window_id: Number(window.get_id()),
+            window_id: String(window.get_id()),
             title: window.get_title?.() ?? null,
             app_id: app?.get_id?.() ?? null,
             wm_class: window.get_wm_class?.() ?? null,

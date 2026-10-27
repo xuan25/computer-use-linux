@@ -29,7 +29,7 @@ const ACTIVATE_VERIFY_TIMEOUT: Duration = Duration::from_millis(800);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct WindowInfo {
-    window_id: u64,
+    window_id: String,
     title: Option<String>,
     app_id: Option<String>,
     wm_class: Option<String>,
@@ -105,7 +105,7 @@ impl ToplevelRecord {
         self.foreign.as_ref()?;
         let identifier = self.identifier.as_deref()?;
         Some(WindowInfo {
-            window_id: stable_window_id(identifier),
+            window_id: stable_window_id(identifier).to_string(),
             title: self.title.clone().filter(|value| !value.trim().is_empty()),
             app_id: self.app_id.clone().filter(|value| !value.trim().is_empty()),
             wm_class: None,
@@ -148,7 +148,7 @@ fn main() -> Result<()> {
         Command::ListWindows => print_json(&collect_windows()?),
         Command::FocusedWindow => print_json(&focused_window()?),
         Command::MonitorLayout => print_json(&monitor_layout()?),
-        Command::ActivateWindow { window_id } => print_json(&activate_window(window_id)?),
+        Command::ActivateWindow { window_id } => print_json(&activate_window(&window_id)?),
     }
 }
 
@@ -158,7 +158,7 @@ enum Command {
     ListWindows,
     FocusedWindow,
     MonitorLayout,
-    ActivateWindow { window_id: u64 },
+    ActivateWindow { window_id: String },
 }
 
 impl Command {
@@ -169,10 +169,11 @@ impl Command {
             [command] if command == "focused-window" => Ok(Self::FocusedWindow),
             [command] if command == "monitor-layout" => Ok(Self::MonitorLayout),
             [command, flag, value] if command == "activate-window" && flag == "--window-id" => {
+                value
+                    .parse::<u64>()
+                    .with_context(|| format!("invalid window id {value}"))?;
                 Ok(Self::ActivateWindow {
-                    window_id: value
-                        .parse::<u64>()
-                        .with_context(|| format!("invalid window id {value}"))?,
+                    window_id: value.clone(),
                 })
             }
             [command] if command == "--help" || command == "-h" => {
@@ -230,7 +231,7 @@ fn monitor_layout() -> Result<Vec<MonitorInfo>> {
     Snapshot::collect()?.monitor_layout()
 }
 
-fn activate_window(window_id: u64) -> Result<ActivationOutput> {
+fn activate_window(window_id: &str) -> Result<ActivationOutput> {
     let mut snapshot = Snapshot::collect()?;
     let verified = snapshot.activate(window_id)?;
     Ok(ActivationOutput {
@@ -416,7 +417,7 @@ impl Snapshot {
             .ok_or_else(|| anyhow!("COSMIC output management returned an incomplete layout"))
     }
 
-    fn activate(&mut self, window_id: u64) -> Result<bool> {
+    fn activate(&mut self, window_id: &str) -> Result<bool> {
         if !self.can_activate_windows() {
             bail!("COSMIC activation capability is unavailable");
         }
@@ -434,7 +435,7 @@ impl Snapshot {
                 record
                     .identifier
                     .as_deref()
-                    .is_some_and(|id| stable_window_id(id) == window_id)
+                    .is_some_and(|id| stable_window_id(id).to_string() == window_id)
             })
             .ok_or_else(|| anyhow!("no COSMIC toplevel matched window_id {window_id}"))?;
         let cosmic = record
@@ -1010,12 +1011,12 @@ mod tests {
     fn focus_selection_returns_compositor_activated_window() {
         let windows = vec![test_window(7, false), test_window(9, true)];
 
-        assert_eq!(protocol_focused_window(windows).unwrap().window_id, 9);
+        assert_eq!(protocol_focused_window(windows).unwrap().window_id, "9");
     }
 
     fn test_window(window_id: u64, focused: bool) -> WindowInfo {
         WindowInfo {
-            window_id,
+            window_id: window_id.to_string(),
             title: None,
             app_id: None,
             wm_class: None,

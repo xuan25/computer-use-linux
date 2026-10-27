@@ -34,7 +34,7 @@ pub async fn list_windows() -> Result<Vec<WindowInfo>> {
     for window in &mut windows {
         window.backend = COSMIC_WAYLAND_BACKEND.to_string();
     }
-    windows.sort_by_key(|window| window.window_id);
+    windows.sort_by_key(|window| window.window_id.to_string());
     enrich_terminal_windows(&mut windows);
     Ok(windows)
 }
@@ -49,7 +49,7 @@ pub async fn focused_window() -> Result<Option<WindowInfo>> {
     Ok(window)
 }
 
-pub async fn activate_window(window_id: u64) -> Result<()> {
+pub async fn activate_window(window_id: &str) -> Result<()> {
     let activation = cosmic_helper::activate_window(window_id).await?;
     if activation.ok {
         Ok(())

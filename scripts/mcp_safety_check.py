@@ -348,7 +348,7 @@ def assert_screenshot_error_contract(binary: pathlib.Path) -> None:
                     "tools/call",
                     {
                         "name": "screenshot",
-                        "arguments": {"window_id": 210, "raise_window": False},
+                        "arguments": {"window_id": "210", "raise_window": False},
                     },
                 )["result"]
                 expected_error = (

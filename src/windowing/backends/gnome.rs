@@ -88,23 +88,38 @@ pub async fn list_introspect_windows() -> Result<Vec<WindowInfo>> {
 
     let mut windows = windows
         .into_iter()
-        .map(|(window_id, properties)| window_from_properties(window_id, &properties))
+        .map(|(window_id, properties)| window_from_properties(&window_id.to_string(), &properties))
         .collect::<Vec<_>>();
-    windows.sort_by_key(|window| window.window_id);
+    windows.sort_by_key(|window| window.window_id.to_string());
     enrich_terminal_windows(&mut windows);
     Ok(windows)
 }
 
 pub async fn list_extension_windows() -> Result<Vec<WindowInfo>> {
     let json = call_extension_json("ListWindows").await?;
-    let mut windows: Vec<WindowInfo> = serde_json::from_str(&json)
-        .context("computer-use-linux GNOME Shell extension returned invalid JSON")?;
+    let mut windows = parse_extension_windows(&json)?;
     for window in &mut windows {
         window.backend = GNOME_SHELL_EXTENSION_BACKEND.to_string();
     }
-    windows.sort_by_key(|window| window.window_id);
+    windows.sort_by_key(|window| window.window_id.to_string());
     enrich_terminal_windows(&mut windows);
     Ok(windows)
+}
+
+fn parse_extension_windows(json: &str) -> Result<Vec<WindowInfo>> {
+    let mut windows: serde_json::Value = serde_json::from_str(json)
+        .context("computer-use-linux GNOME Shell extension returned invalid JSON")?;
+    if let Some(windows) = windows.as_array_mut() {
+        for window in windows {
+            if let Some(id) = window.get_mut("window_id") {
+                if let Some(number) = id.as_u64() {
+                    *id = serde_json::Value::String(number.to_string());
+                }
+            }
+        }
+    }
+    serde_json::from_value(windows)
+        .context("computer-use-linux GNOME Shell extension returned invalid window data")
 }
 
 pub(crate) async fn focus_app(app_id: &str) -> Result<()> {
@@ -179,16 +194,36 @@ pub async fn extension_monitor_layout() -> Result<Vec<MonitorInfo>> {
         .context("computer-use-linux GNOME Shell extension returned invalid monitor JSON")
 }
 
-pub(crate) async fn move_extension_window(window_id: u64, x: i32, y: i32) -> Result<String> {
-    extension_window_op("MoveWindow", &(window_id, x, y)).await
+pub(crate) async fn move_extension_window(window_id: &str, x: i32, y: i32) -> Result<String> {
+    extension_window_op(
+        "MoveWindow",
+        &(
+            window_id.parse::<u64>().with_context(|| {
+                format!("GNOME window_id {window_id:?} is not a valid unsigned integer")
+            })?,
+            x,
+            y,
+        ),
+    )
+    .await
 }
 
 pub(crate) async fn resize_extension_window(
-    window_id: u64,
+    window_id: &str,
     width: i32,
     height: i32,
 ) -> Result<String> {
-    extension_window_op("ResizeWindow", &(window_id, width, height)).await
+    extension_window_op(
+        "ResizeWindow",
+        &(
+            window_id.parse::<u64>().with_context(|| {
+                format!("GNOME window_id {window_id:?} is not a valid unsigned integer")
+            })?,
+            width,
+            height,
+        ),
+    )
+    .await
 }
 
 async fn extension_window_op<B: serde::Serialize + zbus::zvariant::DynamicType>(
@@ -215,7 +250,7 @@ async fn extension_window_op<B: serde::Serialize + zbus::zvariant::DynamicType>(
     }
 }
 
-pub(crate) async fn activate_extension_window(window_id: u64) -> Result<()> {
+pub(crate) async fn activate_extension_window(window_id: &str) -> Result<()> {
     hydrate_session_bus_env();
 
     let connection = zbus::Connection::session()
@@ -223,7 +258,12 @@ pub(crate) async fn activate_extension_window(window_id: u64) -> Result<()> {
         .context("failed to connect to session bus")?;
     let proxy = verified_extension_proxy(&connection).await?;
     let (ok, message): (bool, String) = proxy
-        .call("ActivateWindow", &(window_id))
+        .call(
+            "ActivateWindow",
+            &(window_id.parse::<u64>().with_context(|| {
+                format!("GNOME window_id {window_id:?} is not a valid unsigned integer")
+            })?),
+        )
         .await
         .with_context(|| {
             format!(
@@ -313,7 +353,7 @@ fn parse_gdbus_unique_name(output: &str) -> Option<String> {
 }
 
 pub(crate) fn window_from_properties(
-    window_id: u64,
+    window_id: &str,
     properties: &HashMap<String, OwnedValue>,
 ) -> WindowInfo {
     let width = get_u32(properties, "width");
@@ -326,7 +366,7 @@ pub(crate) fn window_from_properties(
     });
 
     WindowInfo {
-        window_id,
+        window_id: window_id.to_string(),
         title: get_string(properties, "title"),
         app_id: get_string(properties, "app-id"),
         wm_class: get_string(properties, "wm-class"),
@@ -461,6 +501,17 @@ fn run_probe_command(mut command: Command) -> ProbeCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extension_window_ids_accept_old_and_new_json_formats() {
+        let json = r#"[
+            {"window_id":42,"title":null,"app_id":null,"wm_class":null,"pid":null,"bounds":null,"workspace":null,"focused":true,"hidden":false,"client_type":null,"backend":"gnome","terminal":null},
+            {"window_id":"43","title":null,"app_id":null,"wm_class":null,"pid":null,"bounds":null,"workspace":null,"focused":false,"hidden":false,"client_type":null,"backend":"gnome","terminal":null}
+        ]"#;
+        let windows = parse_extension_windows(json).unwrap();
+        assert_eq!(windows[0].window_id, "42");
+        assert_eq!(windows[1].window_id, "43");
+    }
 
     #[test]
     fn extension_owner_must_match_shell_owner() {
